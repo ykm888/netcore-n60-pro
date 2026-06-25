@@ -1,5 +1,5 @@
 # .github/workflows/build-237-highpower.yml
-name: 237 High-Power Builder (Fix Config)
+name: 237 High-Power Builder (Fix Config - No EOF)
 
 on:
   workflow_dispatch:
@@ -56,8 +56,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ===== 核心修改：彻底修复配置文件 =====
-      - name: Load and fix custom config
+      - name: Load and fix custom config (no EOF)
         run: |
           cd openwrt
           if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
@@ -66,27 +65,21 @@ jobs:
           else
             echo "⚠️ 配置文件不存在，使用默认配置"
             make defconfig
-            # 如果默认配置生成成功，继续后面的步骤
           fi
 
           # ===== 1. 清理所有常见语法错误 =====
-          # 删除 Windows 换行符
           sed -i 's/\r$//' .config
-          # 删除行首和行尾空白字符
           sed -i 's/^[ \t]*//; s/[ \t]*$//' .config
-          # 删除空行
           sed -i '/^$/d' .config
 
-          # ===== 2. 删除所有旧的 CONFIG_TARGET 行，避免重复 =====
+          # ===== 2. 删除所有旧的 CONFIG_TARGET 行 =====
           sed -i '/^CONFIG_TARGET_/d' .config
 
-          # ===== 3. 重新写入正确的目标配置（只保留 N60 Pro） =====
-          cat >> .config << 'EOF'
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y
-# CONFIG_TARGET_MULTI_PROFILE is not set
-EOF
+          # ===== 3. 重新写入正确的目标配置（使用 echo，禁用 EOF） =====
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
+          echo "# CONFIG_TARGET_MULTI_PROFILE is not set" >> .config
 
           # ===== 4. 强制清理任何残留的 x86 配置 =====
           sed -i '/CONFIG_x86/d' .config
@@ -97,7 +90,7 @@ EOF
           echo "=== 当前目标配置 ==="
           grep '^CONFIG_TARGET' .config
 
-          # ===== 6. 重新生成配置，系统会自动修正其他问题 =====
+          # ===== 6. 重新生成配置 =====
           make defconfig
 
       - name: Download package
