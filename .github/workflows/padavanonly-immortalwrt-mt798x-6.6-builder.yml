@@ -6,10 +6,10 @@ on:
 
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: openwrt-24.10-6.6          # 可改为 2410 或其他分支
-  CONFIG_FILE: dailook-hanwckf.config      # 你的配置文件
-  DIY_P1_SH: diy-part1.sh                  # 可选，不存在则跳过
-  DIY_P2_SH: diy-part5-6.6.sh              # 可选
+  REPO_BRANCH: openwrt-24.10-6.6
+  CONFIG_FILE: dailook-hanwckf.config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   FIRMWARE_TAG: 237-highpower
@@ -44,7 +44,9 @@ jobs:
 
       - name: Clone source code
         run: |
-          mkdir -p /workdir
+          # 使用 sudo 创建 /workdir 并赋权
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
           cd /workdir
           git clone -b ${{ env.REPO_BRANCH }} --single-branch --filter=blob:none ${{ env.REPO_URL }} openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
@@ -58,7 +60,6 @@ jobs:
       - name: Load custom config and force target
         run: |
           cd openwrt
-          # 复制配置文件（如果存在）
           if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
             cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
             echo "✅ 使用自定义配置: ${{ env.CONFIG_FILE }}"
@@ -67,7 +68,7 @@ jobs:
             make defconfig
           fi
 
-          # ===== 强制清理 x86 残留 =====
+          # 强制清理 x86 残留
           sed -i '/CONFIG_TARGET_x86/d' .config
           sed -i '/CONFIG_TARGET_x86_64/d' .config
           sed -i '/CONFIG_M686/d' .config
@@ -75,7 +76,7 @@ jobs:
           sed -i '/CONFIG_X86/d' .config
           sed -i '/CONFIG_64BIT/d' .config
 
-          # ===== 锁定 N60 Pro 目标 =====
+          # 锁定 N60 Pro 目标
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
