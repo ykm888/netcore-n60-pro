@@ -1,202 +1,103 @@
-# .github/workflows/build-237-highpower.yml
-name: 237 High-Power Builder (Validated Template)
+name: Build OpenWrt for Netcore N60 Pro
 
 on:
+  repository_dispatch:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: openwrt-24.10-6.6
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
-  FIRMWARE_TAG: 237-highpower
+  REPO_URL: https://github.com/hanwckf/immortalwrt-mt798x
+  REPO_BRANCH: openwrt-21.02
+  CONFIG_FILE: dailook-hanwckf.config
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout your repository
-        uses: actions/checkout@main
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          sudo apt clean
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          df -h
+    - name: Initialization Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo apt-get update
+        sudo apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
+        sudo apt-get -y install ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git glogg gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils qemu-utils rsync sstream sstrip subversion swig texinfo u-boot-tools unzip upx utf8proc vboot-utils wget xmlto xz-utils zlib1g-dev
+        sudo timedatectl set-timezone "${{ env.TZ }}"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
 
-      - name: Install build dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
-          sudo timedatectl set-timezone "$TZ"
+    - name: Clone Source Code
+      run: |
+        df -hT $PWD
+        git clone --depth 1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} /workdir/openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Clone source code
-        run: |
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
-          cd /workdir
-          git clone -b ${{ env.REPO_BRANCH }} --single-branch --filter=blob:none ${{ env.REPO_URL }} openwrt
-          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+    - name: Update & Install Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      - name: Update feeds
-        run: |
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    - name: Load Custom Configuration
+      run: |
+        [ -f ${{ env.CONFIG_FILE }} ] && cp ${{ env.CONFIG_FILE }} openwrt/.config
+        cd openwrt
+        make defconfig
 
-      - name: Generate config from validated template
-        run: |
-          cd openwrt
-          # 1. 使用上游验证过的 N60 Pro 高功率配置模板
-          cp defconfig/nx60pro-ipailna-high-power.config .config
+    - name: Download Package Source
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-          # 2. 清理 x86 残留（如果有）
-          sed -i '/CONFIG_TARGET_x86/d' .config
-          sed -i '/CONFIG_M686/d' .config
+    - name: Compile Firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo "status=success"
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
 
-          # 3. 删除所有旧的 CONFIG_TARGET 行，确保唯一
-          sed -i '/^CONFIG_TARGET_/d' .config
+    - name: Organize Files
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
 
-          # 4. 写入正确的目标配置
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
-          echo "# CONFIG_TARGET_MULTI_PROFILE is not set" >> .config
+    - name: Upload Firmware to Artifacts
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_firmware_${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
 
-          # 5. 追加 Docker 支持（逐行 echo，避免 EOF）
-          echo "CONFIG_PACKAGE_kmod-cgroup-cpu=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-cgroup-cpuset=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-cgroup-freezer=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-cgroup-memory=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-veth=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-br-netfilter=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-overlay=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-lib-crc32c=y" >> .config
-          echo "CONFIG_PACKAGE_cgroupfs-mount=y" >> .config
-          echo "CONFIG_PACKAGE_docker-ce=y" >> .config
-          echo "CONFIG_PACKAGE_dockerd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
-          echo "CONFIG_PACKAGE_docker-compose=y" >> .config
+    - name: Generate Release Tag
+      id: tag
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      run: |
+        echo "release_tag=Netcore_N60_Pro_${{ env.FILE_DATE }}" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
 
-          # 6. 追加 SSR Plus+ 科学上网
-          echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
-          echo "CONFIG_PACKAGE_xray-core=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-nft-socket=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-inet-diag=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-ipt-tproxy=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-ipt-nat=y" >> .config
-          echo "CONFIG_PACKAGE_ipset=y" >> .config
-          echo "CONFIG_PACKAGE_ip-full=y" >> .config
-          echo "CONFIG_PACKAGE_libopenssl=y" >> .config
-          echo "CONFIG_PACKAGE_libmbedtls=y" >> .config
-
-          # 7. 追加 UPnP
-          echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
-
-          # 8. 追加 Turbo ACC（可选）
-          echo "CONFIG_PACKAGE_luci-app-turboacc-mtk=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-turboacc-mtk-zh-cn=y" >> .config
-
-          # 9. 显示目标配置确认
-          echo "=== 当前目标配置 ==="
-          grep '^CONFIG_TARGET' .config
-          echo "=== Docker 配置 ==="
-          grep '^CONFIG_PACKAGE_docker' .config | head -3
-          echo "=== SSR Plus+ 配置 ==="
-          grep '^CONFIG_PACKAGE_luci-app-ssr-plus' .config
-
-          # 10. 生成最终配置
-          make defconfig
-
-      - name: Download package
-        run: |
-          cd openwrt
-          make download -j8
-
-      - name: Compile firmware
-        id: compile
-        continue-on-error: true
-        run: |
-          cd openwrt
-          echo "开始编译..."
-          make -j$(nproc) V=s
-          echo "COMPILE_STATUS=success" >> $GITHUB_ENV
-
-      - name: Check compile status
-        if: env.COMPILE_STATUS != 'success'
-        run: |
-          echo "❌ 编译失败！请检查上方日志。"
-          exit 1
-
-      - name: Get firmware path
-        if: env.COMPILE_STATUS == 'success'
-        run: |
-          FIRMWARE_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
-          if [ -d "$FIRMWARE_DIR" ]; then
-            echo "FIRMWARE_DIR=$FIRMWARE_DIR" >> $GITHUB_ENV
-            echo "FIRMWARE_EXISTS=true" >> $GITHUB_ENV
-            echo "✅ 固件目录: $FIRMWARE_DIR"
-          else
-            echo "❌ 固件目录不存在！"
-            exit 1
-          fi
-
-      - name: Get device name
-        if: env.FIRMWARE_EXISTS == 'true'
-        run: |
-          cd openwrt
-          DEVICE=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' | head -1)
-          [ -n "$DEVICE" ] && echo "DEVICE_NAME=_$DEVICE" >> $GITHUB_ENV
-          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-
-      - name: Organize files
-        if: env.FIRMWARE_EXISTS == 'true'
-        run: |
-          cd ${{ env.FIRMWARE_DIR }}
-          rm -rf packages
-          echo "✅ 固件文件："
-          ls -la
-
-      - name: Upload firmware directory
-        uses: actions/upload-artifact@main
-        if: env.FIRMWARE_EXISTS == 'true'
-        with:
-          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-          path: ${{ env.FIRMWARE_DIR }}
-
-      - name: Generate release tag
-        id: tag
-        if: env.FIRMWARE_EXISTS == 'true' && env.UPLOAD_RELEASE == 'true'
-        run: |
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M")-${{ env.FIRMWARE_TAG }}" >> $GITHUB_OUTPUT
-          touch release.txt
-
-      - name: Upload firmware to release
-        uses: softprops/action-gh-release@master
-        if: env.FIRMWARE_EXISTS == 'true' && env.UPLOAD_RELEASE == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          body_path: release.txt
-          files: ${{ env.FIRMWARE_DIR }}/*
-
-      - name: Delete workflow runs
-        uses: Mattraks/delete-workflow-runs@main
-        with:
-          retain_days: 0
-          keep_minimum_runs: 2
+    - name: Upload Firmware to Release
+      uses: softprops/action-gh-release@v2
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        files: ${{ env.FIRMWARE }}/*
+        body: |
+          ### 磊科 N60 Pro 237 高功率精简固件
+          * **底层源码**: hanwckf / immortalwrt-mt798x (内置 237 高功率闭源无线驱动)
+          * **内置插件**: 科学上网 (SSR Plus+) + Docker 内核级全依赖 (应用后装)
+          * **编译时间**: ${{ env.FILE_DATE }}
+          * **提示**: 首次刷入默认管理 IP 请查阅源码定义（通常为 `192.168.1.1` 或 `192.168.31.1`）
