@@ -24,7 +24,9 @@ jobs:
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo apt-get update
-        sudo apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
+        # 移除了 hhvm，并加入了 --ignore-missing 防止找不到包时报错
+        sudo apt-get -y purge --ignore-missing azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
+        sudo apt-get -y autoremove --purge
         sudo apt-get -y install ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git glogg gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils qemu-utils rsync sstream sstrip subversion swig texinfo u-boot-tools unzip upx utf8proc vboot-utils wget xmlto xz-utils zlib1g-dev
         sudo timedatectl set-timezone "${{ env.TZ }}"
         sudo mkdir -p /workdir
