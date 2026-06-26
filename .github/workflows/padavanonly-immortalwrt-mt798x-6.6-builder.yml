@@ -1,5 +1,5 @@
 # .github/workflows/build-237-highpower.yml
-name: 237 High-Power Builder (Fix Config - No EOF)
+name: 237 High-Power Builder (Validated Template)
 
 on:
   workflow_dispatch:
@@ -7,9 +7,6 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
-  CONFIG_FILE: dailook-hanwckf.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   FIRMWARE_TAG: 237-highpower
@@ -56,41 +53,73 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Load and fix custom config (no EOF)
+      - name: Generate config from validated template
         run: |
           cd openwrt
-          if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
-            cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
-            echo "✅ 使用自定义配置: ${{ env.CONFIG_FILE }}"
-          else
-            echo "⚠️ 配置文件不存在，使用默认配置"
-            make defconfig
-          fi
+          # 1. 使用上游验证过的 N60 Pro 高功率配置模板
+          cp defconfig/nx60pro-ipailna-high-power.config .config
 
-          # ===== 1. 清理所有常见语法错误 =====
-          sed -i 's/\r$//' .config
-          sed -i 's/^[ \t]*//; s/[ \t]*$//' .config
-          sed -i '/^$/d' .config
+          # 2. 清理 x86 残留（如果有）
+          sed -i '/CONFIG_TARGET_x86/d' .config
+          sed -i '/CONFIG_M686/d' .config
 
-          # ===== 2. 删除所有旧的 CONFIG_TARGET 行 =====
+          # 3. 删除所有旧的 CONFIG_TARGET 行，确保唯一
           sed -i '/^CONFIG_TARGET_/d' .config
 
-          # ===== 3. 重新写入正确的目标配置（使用 echo，禁用 EOF） =====
+          # 4. 写入正确的目标配置
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
           echo "# CONFIG_TARGET_MULTI_PROFILE is not set" >> .config
 
-          # ===== 4. 强制清理任何残留的 x86 配置 =====
-          sed -i '/CONFIG_x86/d' .config
-          sed -i '/CONFIG_M686/d' .config
-          sed -i '/CONFIG_CPU_SUP_INTEL/d' .config
+          # 5. 追加 Docker 支持（逐行 echo，避免 EOF）
+          echo "CONFIG_PACKAGE_kmod-cgroup-cpu=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-cgroup-cpuset=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-cgroup-freezer=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-cgroup-memory=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-veth=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-br-netfilter=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-overlay=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-lib-crc32c=y" >> .config
+          echo "CONFIG_PACKAGE_cgroupfs-mount=y" >> .config
+          echo "CONFIG_PACKAGE_docker-ce=y" >> .config
+          echo "CONFIG_PACKAGE_dockerd=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
+          echo "CONFIG_PACKAGE_docker-compose=y" >> .config
 
-          # ===== 5. 显示目标配置确认 =====
+          # 6. 追加 SSR Plus+ 科学上网
+          echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
+          echo "CONFIG_PACKAGE_xray-core=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nft-socket=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-inet-diag=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-tproxy=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-nat=y" >> .config
+          echo "CONFIG_PACKAGE_ipset=y" >> .config
+          echo "CONFIG_PACKAGE_ip-full=y" >> .config
+          echo "CONFIG_PACKAGE_libopenssl=y" >> .config
+          echo "CONFIG_PACKAGE_libmbedtls=y" >> .config
+
+          # 7. 追加 UPnP
+          echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
+
+          # 8. 追加 Turbo ACC（可选）
+          echo "CONFIG_PACKAGE_luci-app-turboacc-mtk=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-turboacc-mtk-zh-cn=y" >> .config
+
+          # 9. 显示目标配置确认
           echo "=== 当前目标配置 ==="
           grep '^CONFIG_TARGET' .config
+          echo "=== Docker 配置 ==="
+          grep '^CONFIG_PACKAGE_docker' .config | head -3
+          echo "=== SSR Plus+ 配置 ==="
+          grep '^CONFIG_PACKAGE_luci-app-ssr-plus' .config
 
-          # ===== 6. 重新生成配置 =====
+          # 10. 生成最终配置
           make defconfig
 
       - name: Download package
