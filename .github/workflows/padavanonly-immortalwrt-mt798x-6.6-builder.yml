@@ -1,4 +1,4 @@
-name: Build OpenWrt for Netcore N60 Pro
+name: Build OpenWrt for Netcore N60 Pro (MT7986 原厂驱动版)
 
 on:
   repository_dispatch:
@@ -26,7 +26,6 @@ jobs:
         sudo apt-get update
         sudo apt-get -y purge --ignore-missing azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
         sudo apt-get -y autoremove --purge
-        # 修正了包含 sstream, sstrip, utf8proc 的错误包名，改为官方标准依赖集
         sudo apt-get -y install ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git glogg gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils qemu-utils rsync subversion swig texinfo u-boot-tools unzip upx wget xmlto xz-utils zlib1g-dev libutf8proc-dev
         sudo timedatectl set-timezone "${{ env.TZ }}"
         sudo mkdir -p /workdir
@@ -62,7 +61,7 @@ jobs:
       run: |
         cd openwrt
         echo "status=success"
-        make -j$(nproc) || make -j1 V=s
+        make -j$(nproc) || make package/mtk/drivers/mt_wifi/compile V=s || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
 
@@ -86,7 +85,7 @@ jobs:
       id: tag
       if: steps.organize.outputs.status == 'success' && !cancelled()
       run: |
-        echo "release_tag=Netcore_N60_Pro_${{ env.FILE_DATE }}" >> $GITHUB_OUTPUT
+        echo "release_tag=Netcore_N60_Pro_MT7986_${{ env.FILE_DATE }}" >> $GITHUB_OUTPUT
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware to Release
@@ -98,8 +97,7 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ### 磊科 N60 Pro 237 高功率精简固件
-          * **底层源码**: hanwckf / immortalwrt-mt798x (内置 237 高功率闭源无线驱动)
-          * **内置插件**: 科学上网 (SSR Plus+) + Docker 内核级全依赖 (应用后装)
+          ### 磊科 N60 Pro (MT7986核心) 237 高功率精简高性能固件
+          * **底层源码**: hanwckf / immortalwrt-mt798x (237 原厂高功率闭源驱动分支)
+          * **特色集成**: 联发科 HNAT + WARP 硬件直通加速、SSR Plus+ 科学上网、Docker 内核依赖完美预留。
           * **编译时间**: ${{ env.FILE_DATE }}
-          * **提示**: 首次刷入默认管理 IP 请查阅源码定义（通常为 `192.168.1.1` 或 `192.168.31.1`）
