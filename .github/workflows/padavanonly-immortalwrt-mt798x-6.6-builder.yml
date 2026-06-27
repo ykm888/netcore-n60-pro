@@ -61,7 +61,17 @@ jobs:
       run: |
         cd openwrt
         echo "status=success"
-        make -j$(nproc) || make package/mtk/drivers/mt_wifi/compile V=s || make -j1 V=s
+        
+        # 核心修复策略：先使用单线程单独攻坚无线驱动相关依赖，防止多线程死锁
+        echo "==== 正在预编译 mt_wifi 闭源无线驱动组件 ===="
+        make tools/compile -j$(nproc)
+        make toolchain/compile -j$(nproc)
+        make package/mtk/drivers/mt_wifi/compile V=s -j1
+        
+        # 驱动通过后，全开多线程编译剩余部分
+        echo "==== 正在全线程编译其余系统组件 ===="
+        make -j$(nproc) || make -j1 V=s
+        
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
 
