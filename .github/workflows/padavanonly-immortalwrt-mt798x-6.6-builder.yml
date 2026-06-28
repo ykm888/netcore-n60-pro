@@ -7,9 +7,10 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
+  FEEDS_CONF: feeds.conf.default          # 补回
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-6.6.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part5-6.6.sh
+  DIY_P1_SH: diy-part1.sh                  # 补回
+  DIY_P2_SH: diy-part5-6.6.sh              # 补回
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   FIRMWARE_TAG: padavanonly-237-mt798x-6.6
@@ -69,18 +70,13 @@ jobs:
             make defconfig
           fi
 
-      # ====== 新增：清理配置文件格式问题 ======
+      # ====== 清理配置文件格式问题 ======
       - name: Clean config file
         run: |
           cd openwrt
-          # 删除 Windows 换行符
           sed -i 's/\r$//' .config
-          # 删除行首空格和 Tab
           sed -i 's/^[ \t]*//' .config
-          # 删除空行（可选）
           sed -i '/^$/d' .config
-          # 删除可能存在的不合法字符（如全角空格等）
-          sed -i 's/　//g' .config
           echo "配置文件已清理"
 
       - name: Run defconfig
@@ -112,7 +108,6 @@ jobs:
         id: organize
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         run: |
-          # 使用固定路径，避免通配符失效
           FIRMWARE_DIR="openwrt/bin/targets/mediatek/filogic"
           if [ -d "$FIRMWARE_DIR" ]; then
             cd $FIRMWARE_DIR
