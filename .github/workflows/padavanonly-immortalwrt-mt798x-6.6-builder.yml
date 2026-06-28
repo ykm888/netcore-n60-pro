@@ -7,10 +7,10 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
-  FEEDS_CONF: feeds.conf.default          # 补回
+  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-6.6.config
-  DIY_P1_SH: diy-part1.sh                  # 补回
-  DIY_P2_SH: diy-part5-6.6.sh              # 补回
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   FIRMWARE_TAG: padavanonly-237-mt798x-6.6
@@ -63,6 +63,7 @@ jobs:
       - name: Load custom configuration
         run: |
           cd openwrt
+          # 使用你的原始成功配置文件
           if [ -f "$GITHUB_WORKSPACE/$CONFIG_FILE" ]; then
             cp "$GITHUB_WORKSPACE/$CONFIG_FILE" .config
           else
@@ -70,7 +71,22 @@ jobs:
             make defconfig
           fi
 
-      # ====== 清理配置文件格式问题 ======
+      # ====== 关键：动态追加功能，不修改原文件 ======
+      - name: Append extra features
+        run: |
+          cd openwrt
+          echo "# ===== 追加功能（动态添加） =====" >> .config
+          # 启用 Xray 核心
+          echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
+          echo "CONFIG_PACKAGE_xray-core=y" >> .config
+          # 禁用空壳模式（如果存在）
+          sed -i 's/^CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY=y/# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY is not set/g' .config
+          # 启用 UPnP
+          echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
+          echo "功能已追加"
+
       - name: Clean config file
         run: |
           cd openwrt
