@@ -1,5 +1,5 @@
 # .github/workflows/openwrt-builder.yml
-name: Build N60 Pro (Custom Config)
+name: Build N60 Pro (Clean Template)
 
 on:
   workflow_dispatch:
@@ -7,12 +7,9 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
-  CONFIG_FILE: padavanonly-immortalwrt-mt798x-6.6.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-  FIRMWARE_TAG: n60pro-custom
+  FIRMWARE_TAG: n60pro-clean
   TZ: Asia/Shanghai
 
 jobs:
@@ -50,47 +47,61 @@ jobs:
           git clone -b ${{ env.REPO_BRANCH }} --single-branch --filter=blob:none ${{ env.REPO_URL }} openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Load custom feeds (diy-part1.sh)
-        run: |
-          if [ -f "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}" ]; then
-            chmod +x "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}"
-            cd openwrt
-            "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}"
-          else
-            echo "⚠️ diy-part1.sh not found, skipping"
-          fi
-
       - name: Update feeds
-        run: cd openwrt && ./scripts/feeds update -a
-
-      - name: Install feeds
-        run: cd openwrt && ./scripts/feeds install -a
-
-      - name: Load custom config and diy-part2
         run: |
           cd openwrt
-          # 复制配置文件
-          if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
-            cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
-            echo "✅ 使用自定义配置: ${{ env.CONFIG_FILE }}"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Generate clean config from validated template
+        run: |
+          cd openwrt
+          # 1. 使用上游验证过的 N60 Pro 配置模板
+          if [ -f "defconfig/nx60pro-ipailna-high-power.config" ]; then
+            cp defconfig/nx60pro-ipailna-high-power.config .config
+            echo "✅ 使用 nx60pro-ipailna-high-power.config"
           else
-            echo "⚠️ 配置文件不存在，使用默认配置"
+            echo "⚠️ 模板不存在，使用默认配置"
             make defconfig
           fi
 
-          # 执行 diy-part5-6.6.sh（如果有）
-          if [ -f "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}" ]; then
-            chmod +x "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}"
-            "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}"
-          else
-            echo "⚠️ diy-part5-6.6.sh not found, skipping"
-          fi
-
-          # 清理格式（确保无语法错误）
+          # 2. 清理所有可能导致语法错误的行
           sed -i 's/\r$//' .config
           sed -i 's/^[ \t]*//' .config
           sed -i '/^$/d' .config
-          echo "配置文件已清理"
+
+          # 3. 删除旧的 TARGET 行，重新写入正确的目标
+          sed -i '/^CONFIG_TARGET_/d' .config
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7986=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
+
+          # 4. 清理 x86 残留
+          sed -i '/CONFIG_TARGET_x86/d' .config
+          sed -i '/CONFIG_M686/d' .config
+
+          # 5. 追加 SSR Plus+ 界面（保留空壳模式，核心后装）
+          echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY=y" >> .config
+          echo "CONFIG_PACKAGE_wifi-scripts=y" >> .config
+
+          # 6. 确保 UPnP 已启用
+          echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
+
+          # 7. 清理格式
+          sed -i 's/\r$//' .config
+          sed -i 's/^[ \t]*//' .config
+          sed -i '/^$/d' .config
+
+          echo "=== 目标配置 ==="
+          grep '^CONFIG_TARGET' .config
+          echo "=== SSR Plus+ ==="
+          grep '^CONFIG_PACKAGE_luci-app-ssr-plus' .config
+          echo "=== UPnP ==="
+          grep '^CONFIG_PACKAGE.*upnp' .config || echo "无 UPnP"
 
           make defconfig
 
