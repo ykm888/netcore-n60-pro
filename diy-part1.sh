@@ -13,10 +13,19 @@
 # Uncomment a feed source
 #sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
 
-# Add a feed source
+# ===== 1. 添加科学上网 feeds (SSR Plus+ & Xray) =====
 echo 'src-git helloworld https://github.com/fw876/helloworld' >>feeds.conf.default
-#echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
 
-# Add ADGuardHome source
-git clone https://github.com/rufengsuixing/luci-app-adguardhome package/luci-app-adguardhome
-chmod -R 755 ./package/luci-app-adguardhome/*
+# ===== 2. 添加 Docker  feeds =====
+# Docker 官方 OpenWrt 源（包含 docker-ce, dockerd 等）
+echo 'src-git docker https://github.com/lisaac/luci-app-dockerman.git' >>feeds.conf.default
+# 如果上面这个源不行，可备选使用以下源（二选一，不要同时启用）：
+# echo 'src-git dockerman https://github.com/lisaac/luci-app-dockerman.git' >>feeds.conf.default
+
+# ===== 3. （可选）AdGuardHome 源（如果不需要可注释掉） =====
+# git clone https://github.com/rufengsuixing/luci-app-adguardhome package/luci-app-adguardhome
+# chmod -R 755 ./package/luci-app-adguardhome/*
+
+# ===== 4. 其他可选 feeds（按需启用） =====
+# echo 'src-git passwall https://github.com/xiaorouji/openwrt-passwall' >>feeds.conf.default
+# echo 'src-git openclash https://github.com/vernesong/OpenClash.git' >>feeds.conf.default
