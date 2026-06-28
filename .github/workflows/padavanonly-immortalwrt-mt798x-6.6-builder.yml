@@ -1,5 +1,5 @@
 # .github/workflows/openwrt-builder.yml
-name: Build N60 Pro with Xray + UPnP
+name: Build N60 Pro (Custom Config)
 
 on:
   workflow_dispatch:
@@ -7,9 +7,12 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
+  CONFIG_FILE: padavanonly-immortalwrt-mt798x-6.6.config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-  FIRMWARE_TAG: n60pro-xray-upnp
+  FIRMWARE_TAG: n60pro-custom
   TZ: Asia/Shanghai
 
 jobs:
@@ -47,52 +50,47 @@ jobs:
           git clone -b ${{ env.REPO_BRANCH }} --single-branch --filter=blob:none ${{ env.REPO_URL }} openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
+      - name: Load custom feeds (diy-part1.sh)
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}" ]; then
+            chmod +x "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}"
+            cd openwrt
+            "$GITHUB_WORKSPACE/${{ env.DIY_P1_SH }}"
+          else
+            echo "⚠️ diy-part1.sh not found, skipping"
+          fi
+
       - name: Update feeds
+        run: cd openwrt && ./scripts/feeds update -a
+
+      - name: Install feeds
+        run: cd openwrt && ./scripts/feeds install -a
+
+      - name: Load custom config and diy-part2
         run: |
           cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # 复制配置文件
+          if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
+            cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
+            echo "✅ 使用自定义配置: ${{ env.CONFIG_FILE }}"
+          else
+            echo "⚠️ 配置文件不存在，使用默认配置"
+            make defconfig
+          fi
 
-      - name: Generate clean config from upstream template
-        run: |
-          cd openwrt
-          # 使用社区验证过的 N60 Pro 高功率配置模板
-          cp defconfig/nx60pro-ipailna-high-power.config .config
+          # 执行 diy-part5-6.6.sh（如果有）
+          if [ -f "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}" ]; then
+            chmod +x "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}"
+            "$GITHUB_WORKSPACE/${{ env.DIY_P2_SH }}"
+          else
+            echo "⚠️ diy-part5-6.6.sh not found, skipping"
+          fi
 
-          # 清理 x86 残留（如果有）
-          sed -i '/CONFIG_TARGET_x86/d' .config
-          sed -i '/CONFIG_M686/d' .config
-
-          # 删除所有旧的 CONFIG_TARGET 行，重新写入正确的目标
-          sed -i '/^CONFIG_TARGET_/d' .config
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_mt7986=y" >> .config
-          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
-          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
-
-          # ----- 追加你需要的功能 -----
-          # 1. 启用 Xray 核心（替代空壳模式）
-          echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
-          echo "CONFIG_PACKAGE_xray-core=y" >> .config
-          # 禁用空壳模式
-          sed -i 's/^CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY=y/# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY is not set/g' .config
-
-          # 2. 启用 UPnP
-          echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
-          echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
-
-          # ----- 清理格式问题 -----
+          # 清理格式（确保无语法错误）
           sed -i 's/\r$//' .config
           sed -i 's/^[ \t]*//' .config
           sed -i '/^$/d' .config
-
-          echo "=== 当前目标配置 ==="
-          grep '^CONFIG_TARGET' .config
-          echo "=== Xray 配置 ==="
-          grep '^CONFIG_PACKAGE.*xray' .config || echo "无 Xray 配置"
-          echo "=== UPnP 配置 ==="
-          grep '^CONFIG_PACKAGE.*upnp' .config || echo "无 UPnP 配置"
+          echo "配置文件已清理"
 
           make defconfig
 
