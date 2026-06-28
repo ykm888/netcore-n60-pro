@@ -1,37 +1,25 @@
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-#
-# File: .github/workflows/openwrt-bulder.yml
-# Description: Build OpenWrt using GitHub Actions
-#
-# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-
-name: padavanonly-immortalwrt-mt798x-2410-builder
+# .github/workflows/openwrt-builder.yml
+name: Build N60 Pro (Closed Source WiFi)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: 2410
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-2410.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part5-2410.sh
-  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-  FIRMWARE_TAG: padavanonly-237-mt798x-2410
+  FIRMWARE_TAG: n60pro-closed
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout
@@ -73,11 +61,32 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
         cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+        if [ -f "$GITHUB_WORKSPACE/$CONFIG_FILE" ]; then
+          cp "$GITHUB_WORKSPACE/$CONFIG_FILE" .config
+          echo "✅ 使用自定义配置"
+        else
+          echo "⚠️ 配置文件不存在"
+          make defconfig
+        fi
+        # 清理格式
+        sed -i 's/\r$//' .config
+        sed -i 's/^[ \t]*//' .config
+        sed -i '/^$/d' .config
+
+    # ===== 新增修复步骤：让闭源驱动忽略 -Werror =====
+    - name: Fix mt_wifi compile error
+      run: |
+        cd openwrt
+        # 修改闭源驱动 Makefile，将 -Werror 替换为 -Wno-error
+        if [ -f "package/mtk/drivers/mt_wifi/Makefile" ]; then
+          sed -i 's/-Werror/-Wno-error/g' package/mtk/drivers/mt_wifi/Makefile
+          echo "✅ 已修复 mt_wifi Makefile，将 -Werror 改为 -Wno-error"
+        else
+          echo "⚠️ 未找到 mt_wifi Makefile，跳过修复"
+        fi
+        # 也可以尝试在编译时添加 EXTRA_CFLAGS（备用）
+        echo "EXTRA_CFLAGS += -Wno-error" >> package/mtk/drivers/mt_wifi/Makefile
 
     - name: Download package
       id: package
@@ -103,21 +112,23 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: Upload bin directory
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
-
     - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+        FIRMWARE_DIR="openwrt/bin/targets/mediatek/mt7986"
+        if [ ! -d "$FIRMWARE_DIR" ]; then
+          FIRMWARE_DIR="openwrt/bin/targets/mediatek/filogic"
+        fi
+        if [ -d "$FIRMWARE_DIR" ]; then
+          cd $FIRMWARE_DIR
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ 固件目录不存在"
+          exit 1
+        fi
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@main
@@ -132,8 +143,6 @@ jobs:
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")-${{ env.FIRMWARE_TAG }}" >> $GITHUB_OUTPUT
         touch release.txt
-        [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
       uses: softprops/action-gh-release@master
