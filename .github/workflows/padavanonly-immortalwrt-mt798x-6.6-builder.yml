@@ -1,5 +1,5 @@
 # .github/workflows/openwrt-builder.yml
-name: padavanonly-immortalwrt-mt798x-6.6-builder
+name: Build N60 Pro with Xray + UPnP
 
 on:
   workflow_dispatch:
@@ -7,13 +7,9 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: padavanonly-immortalwrt-mt798x-6.6.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part5-6.6.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-  FIRMWARE_TAG: padavanonly-237-mt798x-6.6
+  FIRMWARE_TAG: n60pro-xray-upnp
   TZ: Asia/Shanghai
 
 jobs:
@@ -23,81 +19,81 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout your repository
         uses: actions/checkout@main
 
-      - name: Initialization environment
+      - name: Free disk space
+        run: |
+          sudo apt clean
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Install build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
 
       - name: Clone source code
-        working-directory: /workdir
         run: |
-          df -hT $PWD
-          git clone -b $REPO_BRANCH --single-branch --filter=blob:none $REPO_URL openwrt
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+          cd /workdir
+          git clone -b ${{ env.REPO_BRANCH }} --single-branch --filter=blob:none ${{ env.REPO_URL }} openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-      - name: Load custom feeds
-        run: |
-          [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-          chmod +x $DIY_P1_SH
-          cd openwrt
-          $GITHUB_WORKSPACE/$DIY_P1_SH
-
       - name: Update feeds
-        run: cd openwrt && ./scripts/feeds update -a
-
-      - name: Install feeds
-        run: cd openwrt && ./scripts/feeds install -a
-
-      - name: Load custom configuration
         run: |
           cd openwrt
-          # 使用你的原始成功配置文件
-          if [ -f "$GITHUB_WORKSPACE/$CONFIG_FILE" ]; then
-            cp "$GITHUB_WORKSPACE/$CONFIG_FILE" .config
-          else
-            echo "配置文件不存在，使用默认配置"
-            make defconfig
-          fi
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      # ====== 关键：动态追加功能，不修改原文件 ======
-      - name: Append extra features
+      - name: Generate clean config from upstream template
         run: |
           cd openwrt
-          echo "# ===== 追加功能（动态添加） =====" >> .config
-          # 启用 Xray 核心
+          # 使用社区验证过的 N60 Pro 高功率配置模板
+          cp defconfig/nx60pro-ipailna-high-power.config .config
+
+          # 清理 x86 残留（如果有）
+          sed -i '/CONFIG_TARGET_x86/d' .config
+          sed -i '/CONFIG_M686/d' .config
+
+          # 删除所有旧的 CONFIG_TARGET 行，重新写入正确的目标
+          sed -i '/^CONFIG_TARGET_/d' .config
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_mt7986=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netcore_n60-pro=y" >> .config
+
+          # ----- 追加你需要的功能 -----
+          # 1. 启用 Xray 核心（替代空壳模式）
           echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
           echo "CONFIG_PACKAGE_xray-core=y" >> .config
-          # 禁用空壳模式（如果存在）
+          # 禁用空壳模式
           sed -i 's/^CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY=y/# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NONE_V2RAY is not set/g' .config
-          # 启用 UPnP
+
+          # 2. 启用 UPnP
           echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y" >> .config
-          echo "功能已追加"
 
-      - name: Clean config file
-        run: |
-          cd openwrt
+          # ----- 清理格式问题 -----
           sed -i 's/\r$//' .config
           sed -i 's/^[ \t]*//' .config
           sed -i '/^$/d' .config
-          echo "配置文件已清理"
 
-      - name: Run defconfig
-        run: |
-          cd openwrt
+          echo "=== 当前目标配置 ==="
+          grep '^CONFIG_TARGET' .config
+          echo "=== Xray 配置 ==="
+          grep '^CONFIG_PACKAGE.*xray' .config || echo "无 Xray 配置"
+          echo "=== UPnP 配置 ==="
+          grep '^CONFIG_PACKAGE.*upnp' .config || echo "无 UPnP 配置"
+
           make defconfig
 
       - name: Download package
@@ -105,71 +101,76 @@ jobs:
           cd openwrt
           make download -j8
 
-      - name: Compile the firmware
+      - name: Compile firmware
         id: compile
+        continue-on-error: true
         run: |
           cd openwrt
-          echo -e "$(nproc) thread compile"
-          make -j$(nproc) || make -j1 || make -j1 V=s
-          echo "status=success" >> $GITHUB_OUTPUT
-          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-          [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+          echo "开始编译..."
+          make -j$(nproc) V=s
+          echo "COMPILE_STATUS=success" >> $GITHUB_ENV
 
-      - name: Check space usage
-        if: (!cancelled())
-        run: df -hT
-
-      - name: Organize files
-        id: organize
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      - name: Check compile status
+        if: env.COMPILE_STATUS != 'success'
         run: |
-          FIRMWARE_DIR="openwrt/bin/targets/mediatek/filogic"
+          echo "❌ 编译失败！请检查上方日志。"
+          exit 1
+
+      - name: Get firmware path
+        if: env.COMPILE_STATUS == 'success'
+        run: |
+          FIRMWARE_DIR="$GITHUB_WORKSPACE/openwrt/bin/targets/mediatek/filogic"
           if [ -d "$FIRMWARE_DIR" ]; then
-            cd $FIRMWARE_DIR
-            rm -rf packages
-            echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-            echo "status=success" >> $GITHUB_OUTPUT
+            echo "FIRMWARE_DIR=$FIRMWARE_DIR" >> $GITHUB_ENV
+            echo "FIRMWARE_EXISTS=true" >> $GITHUB_ENV
+            echo "✅ 固件目录: $FIRMWARE_DIR"
           else
-            echo "❌ 固件目录不存在"
+            echo "❌ 固件目录不存在！"
             exit 1
           fi
 
+      - name: Get device name
+        if: env.FIRMWARE_EXISTS == 'true'
+        run: |
+          cd openwrt
+          DEVICE=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' | head -1)
+          [ -n "$DEVICE" ] && echo "DEVICE_NAME=_$DEVICE" >> $GITHUB_ENV
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+      - name: Organize files
+        if: env.FIRMWARE_EXISTS == 'true'
+        run: |
+          cd ${{ env.FIRMWARE_DIR }}
+          rm -rf packages
+          echo "✅ 固件文件："
+          ls -la
+
       - name: Upload firmware directory
         uses: actions/upload-artifact@main
-        if: steps.organize.outputs.status == 'success' && !cancelled()
+        if: env.FIRMWARE_EXISTS == 'true'
         with:
           name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-          path: ${{ env.FIRMWARE }}
+          path: ${{ env.FIRMWARE_DIR }}
 
       - name: Generate release tag
         id: tag
-        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+        if: env.FIRMWARE_EXISTS == 'true' && env.UPLOAD_RELEASE == 'true'
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")-${{ env.FIRMWARE_TAG }}" >> $GITHUB_OUTPUT
           touch release.txt
 
       - name: Upload firmware to release
         uses: softprops/action-gh-release@master
-        if: steps.tag.outputs.status == 'success' && !cancelled()
+        if: env.FIRMWARE_EXISTS == 'true' && env.UPLOAD_RELEASE == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
-          files: ${{ env.FIRMWARE }}/*
+          files: ${{ env.FIRMWARE_DIR }}/*
 
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0
           keep_minimum_runs: 2
-
-      - name: Remove old Releases
-        uses: dev-drprasad/delete-older-releases@master
-        if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-        with:
-          keep_latest: 6
-          delete_tags: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
