@@ -7,6 +7,7 @@ on:
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: 2410
+  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-2410.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part5-2410.sh
@@ -48,10 +49,12 @@ jobs:
 
     - name: Load custom feeds
       run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
+        if [ -e "${{ env.FEEDS_CONF }}" ]; then
+          mv "${{ env.FEEDS_CONF }}" openwrt/feeds.conf.default
+        fi
+        chmod +x "${{ env.DIY_P1_SH }}"
         cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        $GITHUB_WORKSPACE/"${{ env.DIY_P1_SH }}"
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -62,30 +65,26 @@ jobs:
     - name: Load custom configuration
       run: |
         cd openwrt
-        if [ -f "$GITHUB_WORKSPACE/$CONFIG_FILE" ]; then
-          cp "$GITHUB_WORKSPACE/$CONFIG_FILE" .config
+        if [ -f "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" ]; then
+          cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
           echo "✅ 使用自定义配置"
         else
           echo "⚠️ 配置文件不存在"
           make defconfig
         fi
-        # 清理格式
         sed -i 's/\r$//' .config
         sed -i 's/^[ \t]*//' .config
         sed -i '/^$/d' .config
 
-    # ===== 新增修复步骤：让闭源驱动忽略 -Werror =====
     - name: Fix mt_wifi compile error
       run: |
         cd openwrt
-        # 修改闭源驱动 Makefile，将 -Werror 替换为 -Wno-error
         if [ -f "package/mtk/drivers/mt_wifi/Makefile" ]; then
           sed -i 's/-Werror/-Wno-error/g' package/mtk/drivers/mt_wifi/Makefile
-          echo "✅ 已修复 mt_wifi Makefile，将 -Werror 改为 -Wno-error"
+          echo "✅ 已修复 mt_wifi Makefile"
         else
           echo "⚠️ 未找到 mt_wifi Makefile，跳过修复"
         fi
-        # 也可以尝试在编译时添加 EXTRA_CFLAGS（备用）
         echo "EXTRA_CFLAGS += -Wno-error" >> package/mtk/drivers/mt_wifi/Makefile
 
     - name: Download package
