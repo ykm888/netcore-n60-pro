@@ -1,19 +1,16 @@
 # .github/workflows/openwrt-builder.yml
-name: Build N60 Pro (Closed Source WiFi)
+name: Build N60 Pro (ImmortalWrt 24.10)
 
 on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: 2410
-  FEEDS_CONF: feeds.conf.default
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-2410.config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part5-2410.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
-  FIRMWARE_TAG: n60pro-closed
+  FIRMWARE_TAG: n60pro-24.10
   TZ: Asia/Shanghai
 
 jobs:
@@ -47,14 +44,13 @@ jobs:
         git clone -b $REPO_BRANCH --single-branch --filter=blob:none $REPO_URL openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Load custom feeds
+    # ===== 直接在 feeds.conf.default 中追加科学上网和 Docker feeds =====
+    - name: Add custom feeds
       run: |
-        if [ -e "${{ env.FEEDS_CONF }}" ]; then
-          mv "${{ env.FEEDS_CONF }}" openwrt/feeds.conf.default
-        fi
-        chmod +x "${{ env.DIY_P1_SH }}"
         cd openwrt
-        $GITHUB_WORKSPACE/"${{ env.DIY_P1_SH }}"
+        echo "src-git helloworld https://github.com/fw876/helloworld" >> feeds.conf.default
+        echo "src-git dockerman https://github.com/lisaac/luci-app-dockerman.git" >> feeds.conf.default
+        echo "✅ 已添加科学上网和 Docker feeds"
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -69,23 +65,12 @@ jobs:
           cp "$GITHUB_WORKSPACE/${{ env.CONFIG_FILE }}" .config
           echo "✅ 使用自定义配置"
         else
-          echo "⚠️ 配置文件不存在"
+          echo "⚠️ 配置文件不存在，使用默认配置"
           make defconfig
         fi
         sed -i 's/\r$//' .config
         sed -i 's/^[ \t]*//' .config
         sed -i '/^$/d' .config
-
-    - name: Fix mt_wifi compile error
-      run: |
-        cd openwrt
-        if [ -f "package/mtk/drivers/mt_wifi/Makefile" ]; then
-          sed -i 's/-Werror/-Wno-error/g' package/mtk/drivers/mt_wifi/Makefile
-          echo "✅ 已修复 mt_wifi Makefile"
-        else
-          echo "⚠️ 未找到 mt_wifi Makefile，跳过修复"
-        fi
-        echo "EXTRA_CFLAGS += -Wno-error" >> package/mtk/drivers/mt_wifi/Makefile
 
     - name: Download package
       id: package
@@ -115,10 +100,7 @@ jobs:
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        FIRMWARE_DIR="openwrt/bin/targets/mediatek/mt7986"
-        if [ ! -d "$FIRMWARE_DIR" ]; then
-          FIRMWARE_DIR="openwrt/bin/targets/mediatek/filogic"
-        fi
+        FIRMWARE_DIR="openwrt/bin/targets/mediatek/filogic"
         if [ -d "$FIRMWARE_DIR" ]; then
           cd $FIRMWARE_DIR
           rm -rf packages
