@@ -44,13 +44,11 @@ jobs:
         git clone -b $REPO_BRANCH --single-branch --filter=blob:none $REPO_URL openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # ===== 直接在 feeds.conf.default 中追加科学上网和 Docker feeds =====
     - name: Add custom feeds
       run: |
         cd openwrt
         echo "src-git helloworld https://github.com/fw876/helloworld" >> feeds.conf.default
         echo "src-git dockerman https://github.com/lisaac/luci-app-dockerman.git" >> feeds.conf.default
-        echo "✅ 已添加科学上网和 Docker feeds"
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -71,6 +69,13 @@ jobs:
         sed -i 's/\r$//' .config
         sed -i 's/^[ \t]*//' .config
         sed -i '/^$/d' .config
+
+    # ===== 关键修复：禁用包签名，跳过 usign =====
+    - name: Disable package signing
+      run: |
+        cd openwrt
+        echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+        echo "✅ 已禁用包签名"
 
     - name: Download package
       id: package
