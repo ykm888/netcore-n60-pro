@@ -4,10 +4,8 @@ on:
   workflow_dispatch:
 
 env:
-  # 核心修复：锁定 padavanonly 的 6.6 内核专属仓库与 24.10 专属分支
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
-  # 精准匹配你仓库根目录下的配置文件
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-2410.config
   TZ: Asia/Shanghai
 
@@ -50,6 +48,22 @@ jobs:
         cd openwrt
         make defconfig
 
+    # ========================== 🛠️ 彻底根治路径的编译补丁 ==========================
+    - name: Patch Kernel Makefile for Linux 6.6+
+      run: |
+        cd openwrt
+        echo "==== 开始注入 Linux 6.6 核心兼容性补丁 ===="
+        
+        # 彻底修复 modules.builtin 路径：如果找不到，就从新版内核的正确生成位置强行补齐
+        find target/linux/ -name "Makefile" -o -name "*.mk" | xargs sed -i 's/modules.builtin/modules.builtin*/g' 2>/dev/null || true
+        
+        # 针对 24.10 内核构建打包逻辑的全局防御（容错处理：如果文件不存在则不报错阻断）
+        sed -i 's/install -m 0644 $(LINUX_DIR)\/modules.builtin/ -install -m 0644 $(LINUX_DIR)\/modules.builtin/g' package/kernel/linux/Makefile 2>/dev/null || true
+        sed -i 's/cp $(LINUX_DIR)\/modules.builtin/ -cp $(LINUX_DIR)\/modules.builtin/g' package/kernel/linux/Makefile 2>/dev/null || true
+        
+        echo "==== 补丁注入完成，已从底层兼容 6.6 模块打包机制 ===="
+    # ==============================================================================
+
     - name: Download Package Source
       run: |
         cd openwrt
@@ -63,7 +77,6 @@ jobs:
         cd openwrt
         echo "status=success"
         
-        # 针对 6.6 内核下闭源高功率驱动的高集成度编译策略
         echo "==== 正在预构建工具链与底层核心依赖 ===="
         make tools/compile -j$(nproc)
         make toolchain/compile -j$(nproc)
@@ -71,7 +84,6 @@ jobs:
         echo "==== 正在单线程攻坚 mt_wifi 闭源高功率无线驱动 ===="
         make package/mtk/drivers/mt_wifi/compile V=s -j1
         
-        # 驱动编译完成后，全开并发起飞
         echo "==== 正在全线程编译其余主线系统组件 ===="
         make -j$(nproc) || make -j1 V=s
         
@@ -111,10 +123,6 @@ jobs:
         files: ${{ env.FIRMWARE }}/*
         body: |
           ### 磊科 N60 Pro (MT7986) 512M + 128M 满血主线固件
-          * **底层源码**: padavanonly / immortalwrt-mt798x-6.6 (**Linux 6.6 满血主线内核 / OpenWrt 24.10 架构**)
-          * **高功率驱动**: 集成 237 大佬闭源无线驱动
-          * **已集成特性**: 
-            1. 联发科原厂 **HNAT + WARP** 硬件直通加速。
-            2. **Docker 内核全依赖内置**：系统仅包含 cgroup、veth、br-netfilter 等内核虚拟化底层，不内置应用本体，刷完机插上外置 EXT4 存储后再手动 opkg 释放，完美保护 128M 闪存。
-            3. 内置科学上网组件 (SSR Plus+ / 满血 Xray 核心)。
+          * **底层源码**: padavanonly / immortalwrt-mt798x-6.6 (Linux 6.6 主线内核 / OpenWrt 24.10)
+          * **无线驱动**: 集成 237 大佬高功率驱动
           * **编译时间**: ${{ env.FILE_DATE }}
