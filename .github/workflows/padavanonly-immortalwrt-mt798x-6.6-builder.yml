@@ -1,19 +1,18 @@
-name: Build OpenWrt for Netcore N60 Pro (ImmortalWrt 24.10 237驱动版)
+name: Build OpenWrt for Netcore N60 Pro (ImmortalWrt 24.10 内核6.6版)
 
 on:
   workflow_dispatch:
 
 env:
-  # 核心调整：指向 padavanonly 的 mt798x 源码仓库（请根据你实际使用的24.10仓库地址核对，若使用的是原版请保持）
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x
-  REPO_BRANCH: openwrt-24.10
-  # 精准匹配你仓库根目录下的新配置文件名
+  # 核心修复：锁定 padavanonly 的 6.6 内核专属仓库与 24.10 专属分支
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
+  REPO_BRANCH: openwrt-24.10-6.6
+  # 精准匹配你仓库根目录下的配置文件
   CONFIG_FILE: padavanonly-immortalwrt-mt798x-2410.config
   TZ: Asia/Shanghai
 
 jobs:
   build:
-    # 24.10 源码推荐使用 ubuntu-22.04 环境构建
     runs-on: ubuntu-22.04
 
     steps:
@@ -49,7 +48,6 @@ jobs:
       run: |
         [ -f ${{ env.CONFIG_FILE }} ] && cp ${{ env.CONFIG_FILE }} openwrt/.config
         cd openwrt
-        # 针对 24.10 引入新依赖的强制规范化
         make defconfig
 
     - name: Download Package Source
@@ -65,16 +63,16 @@ jobs:
         cd openwrt
         echo "status=success"
         
-        # 核心修复策略：24.10 的 mt_wifi 闭源高功率驱动更依赖上游工具链，必须先单线程喂饱它
-        echo "==== 正在执行 24.10 底层工具链预构建 ===="
+        # 针对 6.6 内核下闭源高功率驱动的高集成度编译策略
+        echo "==== 正在预构建工具链与底层核心依赖 ===="
         make tools/compile -j$(nproc)
         make toolchain/compile -j$(nproc)
         
-        echo "==== 正在单线程编译 237 高功率闭源无线驱动组件 ===="
+        echo "==== 正在单线程攻坚 mt_wifi 闭源高功率无线驱动 ===="
         make package/mtk/drivers/mt_wifi/compile V=s -j1
         
-        # 驱动通过后，全开全线程编译其余组件
-        echo "==== 正在全线程编译 24.10 其余系统组件 ===="
+        # 驱动编译完成后，全开并发起飞
+        echo "==== 正在全线程编译其余主线系统组件 ===="
         make -j$(nproc) || make -j1 V=s
         
         echo "status=success" >> $GITHUB_OUTPUT
@@ -93,14 +91,14 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_24.10_firmware_${{ env.FILE_DATE }}
+        name: OpenWrt_6.6_Kernel_firmware_${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
     - name: Generate Release Tag
       id: tag
       if: steps.organize.outputs.status == 'success' && !cancelled()
       run: |
-        echo "release_tag=Netcore_N60_Pro_24.10_${{ env.FILE_DATE }}" >> $GITHUB_OUTPUT
+        echo "release_tag=Netcore_N60_Pro_Kernel6.6_${{ env.FILE_DATE }}" >> $GITHUB_OUTPUT
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload Firmware to Release
@@ -112,12 +110,11 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         files: ${{ env.FIRMWARE }}/*
         body: |
-          ### 磊科 N60 Pro (MT7986核心) 硬改 512M + 128M 满血精简固件
-          * **底层源码**: padavanonly / immortalwrt-mt798x (**OpenWrt 24.10 分支**)
-          * **无线驱动**: 237 大佬闭源高功率驱动（完美激活满血 Wi-Fi 信号）
-          * **功能与配置特性**:
-            1. 自动适配仓库根目录下的 `padavanonly-immortalwrt-mt798x-2410.config`。
-            2. 联发科原厂 **HNAT + WARP** 硬件直通双重加速（轻载跑满千兆/2.5G）。
-            3. **Docker 内核全依赖内置**：系统只带内核底层，不带 Docker 程序实体，等刷完机插上外置存储（U盘/硬盘盒）后再行外装，完美保护 128M 闪存空间。
-            4. 内置科学上网插件（SSR Plus+ / 默认集成满血 Xray 核心）。
+          ### 磊科 N60 Pro (MT7986) 512M + 128M 满血主线固件
+          * **底层源码**: padavanonly / immortalwrt-mt798x-6.6 (**Linux 6.6 满血主线内核 / OpenWrt 24.10 架构**)
+          * **高功率驱动**: 集成 237 大佬闭源无线驱动
+          * **已集成特性**: 
+            1. 联发科原厂 **HNAT + WARP** 硬件直通加速。
+            2. **Docker 内核全依赖内置**：系统仅包含 cgroup、veth、br-netfilter 等内核虚拟化底层，不内置应用本体，刷完机插上外置 EXT4 存储后再手动 opkg 释放，完美保护 128M 闪存。
+            3. 内置科学上网组件 (SSR Plus+ / 满血 Xray 核心)。
           * **编译时间**: ${{ env.FILE_DATE }}
