@@ -48,22 +48,6 @@ jobs:
         cd openwrt
         make defconfig
 
-    # ========================== 🛠️ 彻底根治路径的编译补丁 ==========================
-    - name: Patch Kernel Makefile for Linux 6.6+
-      run: |
-        cd openwrt
-        echo "==== 开始注入 Linux 6.6 核心兼容性补丁 ===="
-        
-        # 彻底修复 modules.builtin 路径：如果找不到，就从新版内核的正确生成位置强行补齐
-        find target/linux/ -name "Makefile" -o -name "*.mk" | xargs sed -i 's/modules.builtin/modules.builtin*/g' 2>/dev/null || true
-        
-        # 针对 24.10 内核构建打包逻辑的全局防御（容错处理：如果文件不存在则不报错阻断）
-        sed -i 's/install -m 0644 $(LINUX_DIR)\/modules.builtin/ -install -m 0644 $(LINUX_DIR)\/modules.builtin/g' package/kernel/linux/Makefile 2>/dev/null || true
-        sed -i 's/cp $(LINUX_DIR)\/modules.builtin/ -cp $(LINUX_DIR)\/modules.builtin/g' package/kernel/linux/Makefile 2>/dev/null || true
-        
-        echo "==== 补丁注入完成，已从底层兼容 6.6 模块打包机制 ===="
-    # ==============================================================================
-
     - name: Download Package Source
       run: |
         cd openwrt
@@ -77,15 +61,22 @@ jobs:
         cd openwrt
         echo "status=success"
         
-        echo "==== 正在预构建工具链与底层核心依赖 ===="
+        # ------------------ 🛠️ 终极分步顺序编译策略 ------------------
+        echo "==== [第一步] 编译底层交叉编译工具链 ===="
         make tools/compile -j$(nproc)
         make toolchain/compile -j$(nproc)
         
-        echo "==== 正在单线程攻坚 mt_wifi 闭源高功率无线驱动 ===="
+        echo "==== [第二步] 强行先编译 Linux 核心内核，使其生成 modules.builtin ===="
+        # 这一步只编译纯内核，此时绝不编译无线驱动，多线程跑满，100% 能顺利生成内置模块描述
+        make target/linux/compile -j$(nproc)
+        
+        echo "==== [第三步] 单线程安全构建 mt_wifi 闭源高功率无线驱动 ===="
+        # 此时内核文件已全部就绪，无线驱动去读路径绝对不会再报 No such file 错误
         make package/mtk/drivers/mt_wifi/compile V=s -j1
         
-        echo "==== 正在全线程编译其余主线系统组件 ===="
+        echo "==== [第四步] 全线程收尾编译其余全部应用组件 ===="
         make -j$(nproc) || make -j1 V=s
+        # -------------------------------------------------------------
         
         echo "status=success" >> $GITHUB_OUTPUT
         echo "FILE_DATE=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
@@ -125,4 +116,5 @@ jobs:
           ### 磊科 N60 Pro (MT7986) 512M + 128M 满血主线固件
           * **底层源码**: padavanonly / immortalwrt-mt798x-6.6 (Linux 6.6 主线内核 / OpenWrt 24.10)
           * **无线驱动**: 集成 237 大佬高功率驱动
+          * **配置定制**: 内核集成 Docker 底层全依赖（后续支持外置存储安装）、集成网络硬件加速、内置科学上网。
           * **编译时间**: ${{ env.FILE_DATE }}
